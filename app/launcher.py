@@ -33,7 +33,7 @@ import zipfile
 FROZEN = getattr(sys, 'frozen', False)
 IS_MACOS = sys.platform == 'darwin'
 APP_NAME = 'Bloodborne MacOS' if IS_MACOS else 'Bloodborne'
-APP_VERSION = '0.2.3'
+APP_VERSION = '1.0'
 PORT_RUNTIME_VERSION = '1.9'
 PACKAGE_DIR = Path(__file__).resolve().parent
 if FROZEN:
@@ -224,10 +224,10 @@ TWEAKS = [
 INI_FLAGS = {'sharpen', 'object_motion', 'show_fps', *(k for k, _t, _o in EFFECTS + EXTRAS + CHEATS + TWEAKS)}
 INI_DEFAULTS = {'upscaler': 'fsr4', 'preset': '1', 'sharpen': '1', 'sharpness': '0.50',
                 'object_motion': '1', 'show_fps': '1', 'output_res': '1920x1080', 'model_lod': '0',
-                'live_resolution': 'auto',
+                'live_resolution': 'auto', 'render_res': '',
                 **{key: '1' if on else '0' for key, _t, on in EFFECTS + EXTRAS + CHEATS + TWEAKS}}
 if IS_MACOS:
-    INI_DEFAULTS.update({'upscaler': 'fsr3', 'output_res': '1280x720', 'live_resolution': '0'})
+    INI_DEFAULTS.update({'upscaler': 'off', 'output_res': '1280x720', 'live_resolution': '0'})
 def default_game_dir():
     if IS_MACOS:
         games = sorted((WORKSPACE / 'game').glob('*/eboot.bin'))
@@ -1123,9 +1123,9 @@ class Launcher:
                                _('Stored in bbport.ini; the in-game menu (Insert or L3+R3) changes the same values.',
                                  'Хранится в bbport.ini; в игре меняется через меню (Insert или L3+R3).'))
         self.section(f, _('Upscaling', 'Апскейлинг'), top=4)
-        upscaler_hint = (_('FSR 3.1 is the supported temporal upscaler on this Apple Silicon CrossOver path. '
-                   'Choose it before Play; changing it in-game can fail to create the FSR context. '
-                   'Restart the game after changing it.') if IS_MACOS else
+        upscaler_hint = (_('FSR is not working on this Apple Silicon CrossOver path. For manual upscaling, '
+               'choose Off, set Output resolution to your display size, and enter a lower Render '
+               'resolution below. Restart the game after changing graphics settings.') if IS_MACOS else
                          _("Temporal upscaling with the game's own motion vectors. FSR 4 needs its assets (below) and "
                            'a GPU with INT8 dot products; otherwise the game falls back to FSR 3.1 by itself.',
                            'Временной апскейлинг с векторами движения игры. FSR 4 нужны ассеты (ниже) и GPU с INT8; '
@@ -1135,8 +1135,12 @@ class Launcher:
                  _('Render scale per axis: Quality renders at 1/1.5 of the output size.',
                    'Масштаб рендера по каждой оси: Quality рисует в 1/1.5 размера вывода.'))
         self.row(f, _('Output resolution', 'Разрешение вывода'), self.choice(f, 'output_res', 'ini', OUTPUTS),
-                 _('What the upscaler produces; the HUD is drawn at this size too.',
-                   'Что выдаёт апскейлер; интерфейс рисуется в этом же размере.'))
+                 _('Game output size; the HUD is drawn at this size too.',
+                     'Разрешение вывода игры; интерфейс рисуется в этом же размере.'))
+        self.row(f, _('Render resolution', 'Разрешение рендера'),
+                 ttk.Entry(f, textvariable=self.var('render_res', 'ini'), width=24),
+                 _('Scene size as WIDTHxHEIGHT, for example 1280x740. Leave blank to use the preset.',
+                     'Размер сцены WIDTHxHEIGHT, например 1280x740. Оставьте пустым для пресета.'))
         self.row(f, _('Live resolution changes', 'Смена разрешения на лету'), self.choice(f, 'live_resolution', 'ini', LIVE),
                  _('Off: outputs other than 1080p are set by a patch at start (fastest; changing them in the '
                    'game restarts it). On: change output and preset in the game without a restart, at a cost.',

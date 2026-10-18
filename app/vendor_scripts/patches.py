@@ -109,8 +109,14 @@ def read_settings(path):
 
 def render_size(settings,override=''):
     """Render resolution for the upscaler preset, or None for native."""
+    override=override or settings.get('render_res','')
     if override:
-        w,h=(int(v) for v in override.lower().split('x'))
+        try:
+            w,h=(int(v) for v in override.lower().split('x'))
+        except ValueError as error:
+            raise ValueError('render resolution must be WIDTHxHEIGHT') from error
+        if min(w,h)<2 or max(w,h)>8192 or w%2 or h%2:
+            raise ValueError('render resolution dimensions must be even and between 2 and 8192')
         return (w,h)
     if settings.get('upscaler','fsr3')=='off': return None
     preset=int(settings.get('preset','0') or 0)
@@ -135,6 +141,8 @@ def scaled_sizes(settings):
     the game renders at output / preset scale (or at the output size without upscaler) and the
     upscaler fills the output. None at 1080p and for TAA (native, live host targets only)."""
     out=output_size(settings)
+    if settings.get('render_res'):
+        return render_size(settings),out
     if out==OUTPUT_SIZE or settings.get('upscaler')=='taa': return None
     scale=1.0
     if settings.get('upscaler','fsr3')!='off':
@@ -302,16 +310,15 @@ def main():
         print(f'Patches: game version {version}, patches are for {a.app_version}: none applied '
               '(30 FPS, no effect or resolution patches)')
         return
+    settings=read_settings(a.settings)
     names=FPS_PRESETS[a.fps]+[n.strip() for n in a.extra.split(';') if n.strip()]
-    names+=[n for n in effect_patches(read_settings(a.settings)) if n not in names]
+    names+=[n for n in effect_patches(settings) if n not in names]
     validate_patch_requirements(names,a.game_dir)
     segments=eboot_segments((a.out/'eboot.elf').read_bytes())
     writes=compile_patches(a.xml,names,a.app_version,segments)
-    size=render_size(read_settings(a.settings),a.render_res) if a.render_res else None
-    # The UI keeps the game's 1920x1080 coordinates even for a larger output: the port draws
-    # it into the output-size image with a viewport scaled by output / 1920
-    # (UiComposition::NativeViewport), so it is rasterized at the output resolution.
-    ui=OUTPUT_SIZE
+    size=render_size(settings,a.render_res) if a.render_res or settings.get('render_res') else None
+    # The UI uses the selected output size; its 1920x1080 coordinate space is scaled by the port.
+    ui=output_size(settings)
     if size:
         writes+=resolution_writes(a.xml,size,a.app_version,segments,ui)
         if size[0]*size[1]>OUTPUT_SIZE[0]*OUTPUT_SIZE[1]:

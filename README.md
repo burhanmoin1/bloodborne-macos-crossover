@@ -15,14 +15,12 @@ build, and I’m hoping other Mac users can help me improve it over time. The
 app is unofficial and is not affiliated with Sony, FromSoftware, CodeWeavers,
 or the port’s authors.
 
-## Version 0.2.3
+## Final release 1.x
 
-This is an early community release, not a promise of consistent performance yet. On my
-M1 Pro, gameplay has ranged from around 15 to 30 FPS depending on the area and
-settings. Low frame rates can make the game feel like slow motion, and I’ve
-noticed occasional audio crackling. A full playthrough and 60 FPS at 1080p have
-not been verified. Reports from other Macs will help show what works and what
-needs attention.
+Confirmed on my M1 Pro with 16 GB of memory: 40–60 FPS using a 740p render
+resolution and 1080p output resolution. Performance varies by area and settings;
+this is a community-tested result, not a guarantee for other Macs. A complete
+playthrough has not been verified.
 
 ## What it does
 
@@ -43,9 +41,12 @@ Vulkan loader + Mesa KosmicKrisp
 Apple Metal on Apple Silicon
 ```
 
-The Mac interface offers FSR 3.1, TAA, and Off. NVIDIA DLSS and FSR 4 options
-from the Windows launcher are not shown because they are not suitable for the
-Apple Silicon graphics path used here.
+FSR is not working on the Apple Silicon CrossOver path, so set output and render
+resolutions manually in the launcher. Choose **Off** for Upscaler, set **Output
+resolution** to the display size, and enter a lower **Render resolution** as
+`WIDTHxHEIGHT` (for example, 1280x740 for 1080p output). This provides manual
+resolution scaling in place of FSR. TAA remains available; NVIDIA DLSS and FSR 4
+are not shown on macOS.
 
 ## Requirements
 
@@ -56,7 +57,7 @@ Apple Silicon graphics path used here.
 
 ## Download and launch
 
-Download **Bloodborne-MacOS-0.2.3.dmg** from the
+Download **Bloodborne-MacOS-1.0.dmg** from the
 [GitHub Releases](https://github.com/burhanmoin1/bloodborne-macos/releases)
 page. Open the DMG and drag **Bloodborne MacOS.app** to Applications. Start
 the app, select the folder containing `eboot.bin` under **Game & effects**,
@@ -76,10 +77,10 @@ Control-click the app in Finder, choose **Open**, then confirm once.
 
 ## Current limitations
 
-- Performance varies by scene, settings, CrossOver version, and Mac. My M1 Pro
-  has reached about 30 FPS in some areas and dropped to about 15 FPS in others.
+- Performance varies by scene, settings, CrossOver version, and Mac. The
+  confirmed M1 Pro 16 GB result is 40–60 FPS with 740p render and 1080p output.
 - Low FPS can make gameplay feel slow. I’ve also heard slight audio crackling.
-- A complete playthrough and stable 1080p/60 FPS have not been confirmed.
+- A complete playthrough has not been confirmed.
 - Online play, mods, and optional patches come from the Windows port and have
   not been fully checked through CrossOver.
 - This release uses the pinned Bloodborne PC port v1.9 runtime and shadPS4
@@ -93,8 +94,8 @@ Control-click the app in Finder, choose **Open**, then confirm once.
 - CrossOver reports AVX as unavailable in CPUID on Apple Silicon even though
   its Rosetta runner executes AVX. The Mac launcher skips that CPU feature gate
   and enables the port's experimental legacy-instruction translations.
-- Frame generation is not exposed on macOS. The Mac UI keeps to the graphics
-  modes validated for the Apple Silicon CrossOver path.
+- FSR is not working on this macOS CrossOver path. Use the manual render and
+  output resolution controls instead; frame generation is not exposed.
 
 The app downloads the Windows runtime and graphics components on first use,
 checks their published SHA-256 values, and extracts the needed files locally.
@@ -130,7 +131,7 @@ brew install mingw-w64
 ```
 
 The app is built at `dist/Bloodborne MacOS.app`; the DMG is
-`dist/Bloodborne-MacOS-0.2.3.dmg`. `BB_APP_VERSION` can be set when building a
+`dist/Bloodborne-MacOS-1.0.dmg`. `BB_APP_VERSION` can be set when building a
 different version. For source development, double-click
 `Launch Bloodborne.command` to open the same launcher.
 

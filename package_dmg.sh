@@ -4,7 +4,7 @@ set -euo pipefail
 bb_root="${0:A:h}"
 bb_dist="${BB_DIST_PATH:-$bb_root/dist}"
 bb_app_name='Bloodborne MacOS'
-bb_version="${BB_APP_VERSION:-0.2.3}"
+bb_version="${BB_APP_VERSION:-1.0}"
 bb_app="$bb_dist/$bb_app_name.app"
 bb_stage="$bb_root/.build/dmg-root"
 bb_dmg="$bb_dist/Bloodborne-MacOS-$bb_version.dmg"
