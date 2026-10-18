@@ -205,8 +205,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     env.setdefault('BB_CONFIG', str(data / 'bbport.ini'))
     config = env['BB_CONFIG']
-    print('Graphics settings: upscaler {}, preset {}, output {}, live resolution {}'.format(
+    print('Graphics settings: upscaler {}, preset {}, render {}, output {}, live resolution {}'.format(
         ini_value(config, 'upscaler') or 'fsr3', ini_value(config, 'preset') or '0',
+        ini_value(config, 'render_res') or 'auto',
         ini_value(config, 'output_res') or '1920x1080',
         ini_value(config, 'live_resolution') or '0'))
     if not env.get('BB_FSR411_DIR') and not (PORT / 'fsr4_411').is_dir() and (data / 'fsr4_411').is_dir():

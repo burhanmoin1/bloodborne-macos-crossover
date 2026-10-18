@@ -27,6 +27,19 @@ def windows_path(path: Path) -> str:
     return "Z:" + str(path.resolve()).replace("/", "\\")
 
 
+def stage_vendor_scripts(port: Path):
+    """Install the current app scripts where the port's run.py loads them."""
+    vendor_scripts = APP_DIR / "vendor_scripts"
+    if not vendor_scripts.is_dir():
+        return
+    runtime_scripts = port / "scripts"
+    runtime_scripts.mkdir(parents=True, exist_ok=True)
+    for source in vendor_scripts.glob("*.py"):
+        target = runtime_scripts / source.name
+        if not target.is_file() or target.read_bytes() != source.read_bytes():
+            shutil.copy2(source, target)
+
+
 def process_tree_usage(root_pid: int, target_process: str | None = None):
     try:
         result = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,time=,rss=,args="],
@@ -143,6 +156,7 @@ def launch(args) -> int:
             temporary = port / ".run.py.macos-tmp"
             temporary.write_bytes(source_bytes)
             temporary.replace(run_script)
+    stage_vendor_scripts(port)
     environment = dict(os.environ)
     for key in ("CX_BOTTLE", "CX_INITIALIZED", "WINEPREFIX", "WINELOADER", "WINESERVER", "WINEDLLPATH"):
         environment.pop(key, None)
