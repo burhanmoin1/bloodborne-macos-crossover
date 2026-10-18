@@ -272,7 +272,7 @@ def main():
         fps = env.get('BB_FPS', 'uncap') if patched else '30'
         scaled_render = scaled_output = None
         if not env.get('BB_RENDER_RES'):
-            printed = run_script('patches.py', '--print-scaled', '--settings', config, capture=True).split()
+            printed = run_script('bb_macos_patches.py', '--print-scaled', '--settings', config, capture=True).split()
             if len(printed) == 2:
                 scaled_render, scaled_output = printed
         live = '0'
@@ -291,7 +291,7 @@ def main():
             env.setdefault('BB_DMEM_MB', '9152')
             print(f'Output {scaled_output}: scene {scaled_render}, direct memory {env["BB_DMEM_MB"]} MiB '
                   '(live_resolution=1: live changes)')
-        run_script('patches.py', '--out', out, '--fps', fps, '--extra', env.get('BB_PATCHES', ''),
+        run_script('bb_macos_patches.py', '--out', out, '--fps', fps, '--extra', env.get('BB_PATCHES', ''),
                    '--settings', config, '--game-dir', game, '--render-res', env.get('BB_RENDER_RES', ''),
                    '--output-res', env.get('BB_OUTPUT_RES', ''),
                    '--patches-dir', env.get('BB_PATCHES_DIR', data / 'patches'),

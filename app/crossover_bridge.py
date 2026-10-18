@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 
 from patch_windows_runtime import patch
 
@@ -27,17 +28,35 @@ def windows_path(path: Path) -> str:
     return "Z:" + str(path.resolve()).replace("/", "\\")
 
 
-def stage_vendor_scripts(port: Path):
-    """Install the current app scripts where the port's run.py loads them."""
+def stage_vendor_scripts(port: Path, data_dir: Path):
+    """Stage macOS helpers without replacing the runtime's public patch module."""
     vendor_scripts = APP_DIR / "vendor_scripts"
     if not vendor_scripts.is_dir():
         return
     runtime_scripts = port / "scripts"
     runtime_scripts.mkdir(parents=True, exist_ok=True)
-    for source in vendor_scripts.glob("*.py"):
-        target = runtime_scripts / source.name
+    version = port.name.removeprefix("port-v")
+    archive = data_dir / "downloads" / f"Bloodborne-Windows-v{version}.zip"
+    with zipfile.ZipFile(archive) as bundle:
+        member = next(name for name in bundle.namelist()
+                      if name.replace("\\", "/").endswith("/scripts/patches.py"))
+        stock_patches = bundle.read(member).decode("utf-8")
+    if "def boot_matches_patches" not in stock_patches and "def eboot_matches_patches" in stock_patches:
+        stock_patches += "\n\nboot_matches_patches = eboot_matches_patches\n"
+    target = runtime_scripts / "patches.py"
+    if not target.is_file() or target.read_text(encoding="utf-8") != stock_patches:
+        temporary = runtime_scripts / ".patches.py.macos-tmp"
+        temporary.write_text(stock_patches, encoding="utf-8")
+        temporary.replace(target)
+    for name in ("mods.py", "prepare.py"):
+        source = vendor_scripts / name
+        target = runtime_scripts / name
         if not target.is_file() or target.read_bytes() != source.read_bytes():
             shutil.copy2(source, target)
+    source = vendor_scripts / "patches.py"
+    target = runtime_scripts / "bb_macos_patches.py"
+    if not target.is_file() or target.read_bytes() != source.read_bytes():
+        shutil.copy2(source, target)
 
 
 def process_tree_usage(root_pid: int, target_process: str | None = None):
@@ -156,7 +175,7 @@ def launch(args) -> int:
             temporary = port / ".run.py.macos-tmp"
             temporary.write_bytes(source_bytes)
             temporary.replace(run_script)
-    stage_vendor_scripts(port)
+    stage_vendor_scripts(port, data_dir)
     environment = dict(os.environ)
     for key in ("CX_BOTTLE", "CX_INITIALIZED", "WINEPREFIX", "WINELOADER", "WINESERVER", "WINEDLLPATH"):
         environment.pop(key, None)
