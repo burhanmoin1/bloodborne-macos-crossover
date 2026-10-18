@@ -412,8 +412,8 @@ def load_ini():
         if '=' in line and not line.lstrip().startswith('#'):
             key, value = line.split('=', 1)
             values[key.strip()] = value.strip()
-    if IS_MACOS and values.get('upscaler') not in {key for key, _label in UPSCALERS}:
-        values['upscaler'] = 'fsr3'
+    if IS_MACOS:
+        values['upscaler'] = 'off'
     return values, lines
 
 
@@ -1017,8 +1017,12 @@ class Launcher:
         ttk.Label(quick, text=_('Quick settings', 'Основное'), style='Section.TLabel').grid(
             row=self.next_row(quick), column=0, columnspan=2, sticky='w', pady=(0, 2))
         self.row(quick, _('Frame rate', 'Частота кадров'), self.choice(quick, 'fps_mode', 'app', FPS_MODES, 26))
-        self.row(quick, _('Upscaler', 'Апскейлер'), self.choice(quick, 'upscaler', 'ini', UPSCALERS, 26))
-        self.row(quick, _('Preset', 'Пресет'), self.choice(quick, 'preset', 'ini', PRESETS, 26))
+        if IS_MACOS:
+            self.row(quick, _('FSR', 'FSR'),
+                     self.ttk.Entry(quick, textvariable=self.var('render_res', 'ini'), width=20))
+        else:
+            self.row(quick, _('Upscaler', 'Апскейлер'), self.choice(quick, 'upscaler', 'ini', UPSCALERS, 26))
+            self.row(quick, _('Preset', 'Пресет'), self.choice(quick, 'preset', 'ini', PRESETS, 26))
         self.row(quick, _('Output', 'Разрешение'), self.choice(quick, 'output_res', 'ini', OUTPUTS, 26))
         ttk.Checkbutton(quick, text=_('Fullscreen', 'Полный экран'), variable=self.var('fullscreen', 'app')).grid(
             row=self.next_row(quick), column=1, sticky='w', pady=(8, 0))
@@ -1026,18 +1030,21 @@ class Launcher:
             row=self.next_row(quick), column=1, sticky='w', pady=(4, 0))
         ttk.Button(quick, text=_('Add to Steam'), command=self.add_to_steam).grid(
             row=self.next_row(quick), column=1, sticky='w', pady=(10, 0))
-        previous_upscaler = self.vars['upscaler'].get()
+        if not IS_MACOS:
+            previous_upscaler = self.vars['upscaler'].get()
 
-        def select_quality_for_fsr(*_args):
-            nonlocal previous_upscaler
-            current_upscaler = self.vars['upscaler'].get()
-            if (current_upscaler == 'fsr3' and previous_upscaler != 'fsr3' and
-                    self.vars['preset'].get() == '0'):
-                self.vars['preset'].set('1')
-            previous_upscaler = current_upscaler
+            def select_quality_for_fsr(*_args):
+                nonlocal previous_upscaler
+                current_upscaler = self.vars['upscaler'].get()
+                if (current_upscaler == 'fsr3' and previous_upscaler != 'fsr3' and
+                        self.vars['preset'].get() == '0'):
+                    self.vars['preset'].set('1')
+                previous_upscaler = current_upscaler
 
-        self.vars['upscaler'].trace_add('write', select_quality_for_fsr)
-        for key in ('fps_mode', 'upscaler', 'preset', 'output_res'):
+            self.vars['upscaler'].trace_add('write', select_quality_for_fsr)
+        status_keys = ('fps_mode', 'render_res', 'output_res') if IS_MACOS else \
+            ('fps_mode', 'upscaler', 'preset', 'output_res')
+        for key in status_keys:
             self.vars[key].trace_add('write', lambda *_a: self.refresh_status())
 
     def refresh_crossover_detection(self):
@@ -1122,25 +1129,21 @@ class Launcher:
         f = self.scrolled_page('graphics', _('Graphics', 'Графика'),
                                _('Stored in bbport.ini; the in-game menu (Insert or L3+R3) changes the same values.',
                                  'Хранится в bbport.ini; в игре меняется через меню (Insert или L3+R3).'))
-        self.section(f, _('Upscaling', 'Апскейлинг'), top=4)
-        upscaler_hint = (_('FSR is not working on this Apple Silicon CrossOver path. For manual upscaling, '
-               'choose Off, set Output resolution to your display size, and enter a lower Render '
-               'resolution below. Restart the game after changing graphics settings.') if IS_MACOS else
-                         _("Temporal upscaling with the game's own motion vectors. FSR 4 needs its assets (below) and "
-                           'a GPU with INT8 dot products; otherwise the game falls back to FSR 3.1 by itself.',
-                           'Временной апскейлинг с векторами движения игры. FSR 4 нужны ассеты (ниже) и GPU с INT8; '
-                           'иначе игра сама переключится на FSR 3.1.'))
-        self.row(f, _('Upscaler', 'Апскейлер'), self.choice(f, 'upscaler', 'ini', UPSCALERS), upscaler_hint)
-        self.row(f, _('Quality preset', 'Пресет'), self.choice(f, 'preset', 'ini', PRESETS),
-                 _('Render scale per axis: Quality renders at 1/1.5 of the output size.',
-                   'Масштаб рендера по каждой оси: Quality рисует в 1/1.5 размера вывода.'))
+        self.section(f, _('FSR', 'FSR') if IS_MACOS else _('Upscaling', 'Апскейлинг'), top=4)
+        if IS_MACOS:
+            self.row(f, _('FSR', 'FSR'), ttk.Entry(f, textvariable=self.var('render_res', 'ini'), width=24),
+                                         _('Manual resolution as WIDTHxHEIGHT; FSR upscaling is unavailable on this path.',
+                                             'Ручное разрешение WIDTHxHEIGHT; апскейлинг FSR здесь недоступен.'))
+        else:
+                        upscaler_hint = _("Temporal upscaling with motion vectors. FSR 4 needs assets and GPU INT8 support; otherwise the game falls back to FSR 3.1.",
+                                                            'Временной апскейлинг с векторами движения. FSR 4 требует ассеты и INT8; иначе игра переключится на FSR 3.1.')
+                        self.row(f, _('Upscaler', 'Апскейлер'), self.choice(f, 'upscaler', 'ini', UPSCALERS), upscaler_hint)
+                        self.row(f, _('Quality preset', 'Пресет'), self.choice(f, 'preset', 'ini', PRESETS),
+                                         _('Render scale per axis: Quality renders at 1/1.5 of the output size.',
+                                             'Масштаб рендера по каждой оси: Quality рисует в 1/1.5 размера вывода.'))
         self.row(f, _('Output resolution', 'Разрешение вывода'), self.choice(f, 'output_res', 'ini', OUTPUTS),
                  _('Game output size; the HUD is drawn at this size too.',
                      'Разрешение вывода игры; интерфейс рисуется в этом же размере.'))
-        self.row(f, _('Render resolution', 'Разрешение рендера'),
-                 ttk.Entry(f, textvariable=self.var('render_res', 'ini'), width=24),
-                 _('Scene size as WIDTHxHEIGHT, for example 1280x740. Leave blank to use the preset.',
-                     'Размер сцены WIDTHxHEIGHT, например 1280x740. Оставьте пустым для пресета.'))
         self.row(f, _('Live resolution changes', 'Смена разрешения на лету'), self.choice(f, 'live_resolution', 'ini', LIVE),
                  _('Off: outputs other than 1080p are set by a patch at start (fastest; changing them in the '
                    'game restarts it). On: change output and preset in the game without a restart, at a cost.',
@@ -1440,11 +1443,16 @@ class Launcher:
         info = game_info(self.var('game_dir', 'app').get())
         if info and info[1] != PATCH_VERSION:
             fps = ('30 FPS',)
-        upscaler = dict(UPSCALERS).get(self.var('upscaler', 'ini').get(), ('?',))[0].split(' (')[0]
-        preset = dict(PRESETS).get(self.var('preset', 'ini').get(), ('?',))[0]
+        if IS_MACOS:
+            upscaler = _('FSR') + ' ' + (self.var('render_res', 'ini').get() or _('Auto'))
+            preset = ''
+        else:
+            upscaler = dict(UPSCALERS).get(self.var('upscaler', 'ini').get(), ('?',))[0].split(' (')[0]
+            preset = dict(PRESETS).get(self.var('preset', 'ini').get(), ('?',))[0]
         output = self.var('output_res', 'ini').get().replace('x', ' × ')
         online = _('Online') if self.var('online', 'app').get() else _('Offline')
-        return f'{_(*fps)}   ·   {upscaler} · {preset}   ·   {output}   ·   {online}'
+        graphics = f'{upscaler} · {output}' if IS_MACOS else f'{upscaler} · {preset} · {output}'
+        return f'{_(*fps)}   ·   {graphics}   ·   {online}'
 
     def detect_gpu(self):
         if IS_MACOS:

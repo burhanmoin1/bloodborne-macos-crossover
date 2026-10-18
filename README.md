@@ -41,12 +41,11 @@ Vulkan loader + Mesa KosmicKrisp
 Apple Metal on Apple Silicon
 ```
 
-FSR is not working on the Apple Silicon CrossOver path, so set output and render
-resolutions manually in the launcher. Choose **Off** for Upscaler, set **Output
-resolution** to the display size, and enter a lower **Render resolution** as
-`WIDTHxHEIGHT` (for example, 1280x740 for 1080p output). This provides manual
-resolution scaling in place of FSR. TAA remains available; NVIDIA DLSS and FSR 4
-are not shown on macOS.
+FSR upscaling is not working on the Apple Silicon CrossOver path. The launcher
+replaces the Upscaler control with an **FSR** resolution field: enter a render
+size as `WIDTHxHEIGHT` (for example, 1280x740), then set **Output resolution**
+to your display size (for example, 1920x1080). This provides manual resolution
+scaling in place of FSR. NVIDIA DLSS and FSR 4 are not shown on macOS.
 
 ## Requirements
 
