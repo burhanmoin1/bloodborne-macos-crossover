@@ -7,7 +7,7 @@ bb_dist="${BB_DIST_PATH:-$bb_root/dist}"
 bb_venv="$bb_build/venv"
 bb_python="${BB_PYTHON:-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3}"
 bb_app_name='Bloodborne MacOS'
-bb_app_version="${BB_APP_VERSION:-0.1.1}"
+bb_app_version="${BB_APP_VERSION:-0.2.3}"
 bb_mingw="$(command -v x86_64-w64-mingw32-gcc || true)"
 bb_iconset="$bb_build/Bloodborne.iconset"
 bb_icon_source="$bb_build/Bloodborne.png"
@@ -15,6 +15,10 @@ bb_icon="$bb_build/Bloodborne.icns"
 
 if [[ ! -x "$bb_python" ]]; then
     print -u2 'Set BB_PYTHON to an Apple Silicon Python 3.13 installation with Tk support.'
+    exit 1
+fi
+if ! "$bb_python" -c 'import _tkinter, tkinter; tkinter.Tcl().eval("info patchlevel")' >/dev/null 2>&1; then
+    print -u2 'The selected Python does not have working Tcl/Tk support; choose a Tk-enabled Python 3.13 interpreter.'
     exit 1
 fi
 if [[ -z "$bb_mingw" ]]; then

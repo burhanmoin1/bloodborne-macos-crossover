@@ -1,17 +1,20 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * Windows 1.6 runtime adapter: support expanded TLS slots without changing
+ * Windows runtime adapter: support expanded TLS slots without changing
  * guest registers, flags, stack, or red zone. All main-image RVAs are guarded
  * by the patcher's SHA256 check. This DLL has no CRT dependencies.
  */
 #include <windows.h>
 #include <stdint.h>
 
-#define GUEST_TLS_SLOT_RVA 0x00c052d8
-#define RUNTIME_LOW_MAP_RVA 0x0000cbb0
 typedef struct { uint64_t address, size, flags; } Segment;
 typedef void *(*LowMap)(size_t size, int protection);
 
 static volatile LONG cursor_watcher_started = 0;
+static DWORD cursor_tls_index = TLS_OUT_OF_INDEXES;
+static DWORD cursor_hook_threads[4];
+static HHOOK cursor_hooks[4];
+static DWORD cursor_hook_failed_thread = 0;
+static unsigned cursor_hook_count = 0;
 
 static void hide_cursor(int *show_cursor_calls) {
     do {
@@ -19,39 +22,119 @@ static void hide_cursor(int *show_cursor_calls) {
     } while (ShowCursor(FALSE) >= 0);
 }
 
+static void cursor_log(const char *message, DWORD length) {
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (!output || output == INVALID_HANDLE_VALUE) return;
+    DWORD written;
+    WriteFile(output, message, length, &written, NULL);
+}
+
+static int cursor_hide_calls_for_thread(void) {
+    return (int)(uintptr_t)TlsGetValue(cursor_tls_index);
+}
+
+static void hide_cursor_on_window_thread(void) {
+    int calls = cursor_hide_calls_for_thread();
+    const BOOL already_hidden_by_us = calls > 0;
+    CURSORINFO cursor = {sizeof(cursor)};
+    if (GetCursorInfo(&cursor) && !(cursor.flags & CURSOR_SHOWING)) return;
+
+    hide_cursor(&calls);
+    TlsSetValue(cursor_tls_index, (LPVOID)(uintptr_t)calls);
+    SetCursor(NULL);
+    if (already_hidden_by_us) return;
+
+    static const char message[] = "Cursor hidden: game window focused.\r\n";
+    cursor_log(message, sizeof(message) - 1);
+}
+
+static void restore_cursor_on_window_thread(void) {
+    int calls = cursor_hide_calls_for_thread();
+    if (calls <= 0) return;
+    while (calls > 0) {
+        ShowCursor(TRUE);
+        --calls;
+    }
+    TlsSetValue(cursor_tls_index, NULL);
+    static const char message[] = "Cursor restored: game window focus changed.\r\n";
+    cursor_log(message, sizeof(message) - 1);
+}
+
+static BOOL is_cursor_message(UINT message) {
+    return (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) ||
+           (message >= WM_NCMOUSEMOVE && message <= WM_NCXBUTTONDBLCLK) ||
+           message == WM_SETCURSOR || message == WM_ACTIVATEAPP ||
+           message == WM_ACTIVATE || message == WM_SETFOCUS ||
+           message == WM_KILLFOCUS || message == WM_NCACTIVATE;
+}
+
+static LRESULT CALLBACK after_game_window_proc(int code, WPARAM wparam, LPARAM lparam) {
+    if (code >= 0 && lparam) {
+        const CWPRETSTRUCT *message = (const CWPRETSTRUCT *)lparam;
+        if (message->message == WM_ACTIVATEAPP && !message->wParam) {
+            restore_cursor_on_window_thread();
+        } else {
+            HWND foreground = GetForegroundWindow();
+            DWORD foreground_pid = 0;
+            if (foreground) GetWindowThreadProcessId(foreground, &foreground_pid);
+            if (foreground_pid != GetCurrentProcessId()) {
+                restore_cursor_on_window_thread();
+            } else if (is_cursor_message(message->message)) {
+                hide_cursor_on_window_thread();
+            }
+        }
+    }
+    return CallNextHookEx(NULL, code, wparam, lparam);
+}
+
+static void install_cursor_hook(DWORD thread_id) {
+    if (!thread_id || cursor_tls_index == TLS_OUT_OF_INDEXES) return;
+    for (unsigned i = 0; i < cursor_hook_count; ++i) {
+        if (cursor_hook_threads[i] == thread_id) return;
+    }
+    if (cursor_hook_count >= sizeof(cursor_hooks) / sizeof(cursor_hooks[0]) ||
+        cursor_hook_failed_thread == thread_id) return;
+
+    HHOOK hook = SetWindowsHookExW(WH_CALLWNDPROCRET, after_game_window_proc, NULL, thread_id);
+    if (!hook) {
+        cursor_hook_failed_thread = thread_id;
+        static const char message[] = "Cursor focus hook installation failed.\r\n";
+        cursor_log(message, sizeof(message) - 1);
+        return;
+    }
+    cursor_hook_threads[cursor_hook_count] = thread_id;
+    cursor_hooks[cursor_hook_count++] = hook;
+    cursor_hook_failed_thread = 0;
+    static const char message[] = "Cursor focus hook installed on game window thread.\r\n";
+    cursor_log(message, sizeof(message) - 1);
+}
+
 static DWORD WINAPI watch_game_cursor(LPVOID unused) {
     (void)unused;
     const DWORD game_pid = GetCurrentProcessId();
-    BOOL game_has_focus = FALSE;
-    int show_cursor_calls = 0;
     for (;;) {
         HWND foreground = GetForegroundWindow();
         DWORD foreground_pid = 0;
-        if (foreground) GetWindowThreadProcessId(foreground, &foreground_pid);
-        const BOOL focused = foreground_pid == game_pid;
-        if (focused && !game_has_focus) {
-            hide_cursor(&show_cursor_calls);
-        } else if (!focused && game_has_focus) {
-            while (show_cursor_calls > 0) {
-                ShowCursor(TRUE);
-                --show_cursor_calls;
-            }
-        } else if (focused) {
-            CURSORINFO cursor = {sizeof(cursor)};
-            if (GetCursorInfo(&cursor) && (cursor.flags & CURSOR_SHOWING)) {
-                hide_cursor(&show_cursor_calls);
-            }
-        }
-        game_has_focus = focused;
+        DWORD foreground_thread = foreground ? GetWindowThreadProcessId(foreground, &foreground_pid) : 0;
+        if (foreground_pid == game_pid) install_cursor_hook(foreground_thread);
         Sleep(75);
     }
 }
 
 static void start_cursor_watcher(void) {
     if (InterlockedCompareExchange(&cursor_watcher_started, 1, 0) != 0) return;
+    cursor_tls_index = TlsAlloc();
+    if (cursor_tls_index == TLS_OUT_OF_INDEXES) {
+        InterlockedExchange(&cursor_watcher_started, 0);
+        return;
+    }
     HANDLE thread = CreateThread(NULL, 0, watch_game_cursor, NULL, 0, NULL);
     if (thread) CloseHandle(thread);
-    else InterlockedExchange(&cursor_watcher_started, 0);
+    else {
+        TlsFree(cursor_tls_index);
+        cursor_tls_index = TLS_OUT_OF_INDEXES;
+        InterlockedExchange(&cursor_watcher_started, 0);
+    }
 }
 
 static int is_tcb_load(const unsigned char *at) {
@@ -73,10 +156,10 @@ static void relative_jump(unsigned char *at, const unsigned char *target) {
 }
 
 __declspec(dllexport) uint64_t bb_crossover_patch_tcb(
-        const Segment *segments, uint64_t count, unsigned char *image) {
+        const Segment *segments, uint64_t count, unsigned char *image, LowMap allocate,
+        const DWORD *tls_slot_address) {
     start_cursor_watcher();
-    unsigned char *main_image = (unsigned char *)GetModuleHandleW(NULL);
-    DWORD slot = *(DWORD *)(main_image + GUEST_TLS_SLOT_RVA);
+    DWORD slot = *tls_slot_address;
     if (slot == TLS_OUT_OF_INDEXES) stop();
     uint64_t matches = 0;
     for (uint64_t s = 0; s < count; ++s) {
@@ -87,7 +170,6 @@ __declspec(dllexport) uint64_t bb_crossover_patch_tcb(
     }
     unsigned char *stubs = NULL;
     if (matches && slot >= 64) {
-        LowMap allocate = (LowMap)(main_image + RUNTIME_LOW_MAP_RVA);
         stubs = allocate((size_t)matches * 32, 7); /* PROT_READ|WRITE|EXEC */
         if (!stubs) stop();
     }

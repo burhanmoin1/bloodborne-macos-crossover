@@ -26,6 +26,19 @@ COMMUNITY_SERVER = 'https://thehuntersdream.com'
 GAME_SERVER = 'https://ss4.scej-network.jp:20443'
 # The server's ss.info sends the game to this port for its API (summons among them).
 COMMUNITY_API_PORT = 18671
+LANCE_60FPS_IMAGE = 'bbc91f4dff6bc3118b039464289e39878a8fdfc802a07fab9d5fe84d935a676f'
+
+
+def image_sha256(game):
+    """Hash the loaded eboot image, independent of its SELF container."""
+    sys.path.insert(0, str(PORT / 'scripts'))
+    from prepare import parse_self, span
+    elf, _header, program_headers, _segments, _missing = parse_self((Path(game) / 'eboot.bin').read_bytes())
+    loads = [header for header in program_headers if header['type'] in (1, 0x61000010)]
+    image = bytearray(max(header['vaddr'] + header['memsz'] for header in loads))
+    for header in loads:
+        image[header['vaddr']:header['vaddr'] + header['filesz']] = span(elf, header['offset'], header['filesz'])
+    return hashlib.sha256(image).hexdigest()
 
 
 def summon_service(webapi):
@@ -168,6 +181,17 @@ def save_preparation_cache(game, out, sku):
     temporary.replace(cache)
 
 
+def configure_cpu_compatibility(environment, link_file):
+    try:
+        compatibility = json.loads(Path(link_file).read_text(encoding='utf-8')).get('cpu_compat', {})
+    except (OSError, ValueError):
+        compatibility = {}
+    if compatibility.get('enabled'):
+        environment['BB_CPU_COMPAT'] = '1'
+    else:
+        environment.pop('BB_CPU_COMPAT', None)
+
+
 def main():
     args = sys.argv[1:]
     if len(args) >= 2 and args[0] == '--after':
@@ -181,6 +205,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     env.setdefault('BB_CONFIG', str(data / 'bbport.ini'))
     config = env['BB_CONFIG']
+    print('Graphics settings: upscaler {}, preset {}, output {}, live resolution {}'.format(
+        ini_value(config, 'upscaler') or 'fsr3', ini_value(config, 'preset') or '0',
+        ini_value(config, 'output_res') or '1920x1080',
+        ini_value(config, 'live_resolution') or '0'))
     if not env.get('BB_FSR411_DIR') and not (PORT / 'fsr4_411').is_dir() and (data / 'fsr4_411').is_dir():
         env['BB_FSR411_DIR'] = str(data / 'fsr4_411')
 
@@ -197,6 +225,14 @@ def main():
     if not (game / 'eboot.bin').is_file():
         fail(f'No eboot.bin in {game} (set BB_GAME_DIR).')
     original_game = game.resolve()
+    if env.get('BB_SKIP_GAME_CHECK') != '1':
+        try:
+            prepatched = image_sha256(game) == LANCE_60FPS_IMAGE
+        except (OSError, ValueError, KeyError, IndexError):
+            prepatched = False
+        if prepatched:
+            fail('This eboot.bin has an incompatible 60 FPS patch. Use a clean 1.09 eboot.bin; '
+                 'the port applies its own frame-rate patches.')
     game = Path(run_script('mods.py', game, '--out', out,
                            '--mods-dir', env.get('BB_MODS_DIR', data / 'mods'),
                            '--config', env.get('BB_MODS_CONFIG', data / 'mods.json'),
@@ -215,12 +251,17 @@ def main():
             run_script('content_profile.py', game, '--out', out, '--sku', sku)
             save_preparation_cache(game, out, sku)
 
+        configure_cpu_compatibility(env, out / 'link.json')
         # Patches exist for game version 01.09 only (patches.py applies none to others): other
         # versions keep the game's 30 FPS timing and change resolutions live.
         sys.path.insert(0, str(PORT / 'scripts'))
-        from patches import game_app_version
+        from patches import eboot_matches_patches, game_app_version
         version = game_app_version(game)
         patched = version in (None, '01.09') or bool(env.get('BB_FORCE_PATCHES'))
+        if patched and not env.get('BB_FORCE_PATCHES') and not eboot_matches_patches(out / 'eboot.elf'):
+            patched = False
+            print('Game files: eboot.bin does not match the 01.09 patch fingerprint; '
+                  'running at 30 FPS without game patches')
         if not patched:
             print(f'Game version {version}: community patches need 01.09; 30 FPS, no effect patches')
         # Sizes chosen below for the previous launch are recomputed after an in-game restart.

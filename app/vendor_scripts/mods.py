@@ -25,27 +25,32 @@ def child(folder, name):
     return folder / name
 
 
-def content_root(folder):
+EXTRA_SUFFIXES = {'', '.txt', '.md', '.ini', '.json', '.pdf', '.rtf', '.nfo', '.url', '.htm', '.html',
+                  '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'}
+ARCHIVE_SUFFIXES = {'.zip', '.7z', '.rar'}
+
+
+def content_root(folder, depth=0):
     """(root, prefix): where a mod's files are and the game path they go to, or None.
 
-    Accepted layouts: <mod>/dvdroot_ps4, <mod>/app0/dvdroot_ps4, <mod>/CUSA03173/dvdroot_ps4,
-    one wrapper folder around any of these (an archive extracted into a folder of its name), and
-    the game's folders without dvdroot_ps4 (<mod>/chr, <mod>/parts, ...)."""
+    Accepted layouts include retail serial folders and up to three wrapper folders.
+    Game asset folders may sit beside notes, screenshots, or optional folders."""
     folder = Path(folder)
     if not folder.is_dir():
         return None
-    for wrapper in ('', 'app0', 'CUSA03173'):
+    for wrapper in ('', 'app0', 'CUSA03173', 'CUSA00900', 'CUSA00207', 'CUSA00208', 'CUSA00299',
+                    'CUSA01363', 'CUSA03179', 'CUSA03014', 'CUSA03023'):
         base = child(folder, wrapper) if wrapper else folder
         dvdroot = child(base, 'dvdroot_ps4')
         if dvdroot.is_dir():
             return base, ''
     entries = [e for e in folder.iterdir() if not e.name.startswith('.')]
     folders = [e for e in entries if e.is_dir()]
-    if folders and all(e.name.casefold() in GAME_FOLDERS for e in folders):
+    if any(e.name.casefold() in GAME_FOLDERS for e in folders):
         return folder, 'dvdroot_ps4'
-    if len(folders) == 1 and not [e for e in entries if e.is_file() and
-                                  e.suffix.casefold() not in ('.txt', '.md', '.jpg', '.png', '.ini')]:
-        return content_root(folders[0])
+    if depth < 3 and len(folders) == 1 and not [e for e in entries if e.is_file() and
+                                                e.suffix.casefold() not in EXTRA_SUFFIXES]:
+        return content_root(folders[0], depth + 1)
     return None
 
 
@@ -56,6 +61,28 @@ def discover(root):
         return []
     return sorted((p.name for p in root.iterdir() if p.is_dir() and content_root(p)),
                   key=lambda name: (name.casefold(), name))
+
+
+def problem(folder):
+    folder = Path(folder)
+    files = [entry for entry in folder.rglob('*') if entry.is_file()][:2000]
+    if not files:
+        return 'empty'
+    if any(entry.suffix.casefold() in ARCHIVE_SUFFIXES for entry in files):
+        return 'still an archive: extract it here'
+    folders = [entry for entry in folder.iterdir() if entry.is_dir() and not entry.name.startswith('.')]
+    if len(folders) > 1:
+        return 'several folders: put each mod in its own folder in Mods (each with dvdroot_ps4, or folders like chr, parts, map)'
+    return 'no game files: expected dvdroot_ps4, or folders like chr, parts, map'
+
+
+def unrecognized(root):
+    root = Path(root)
+    if not root.is_dir():
+        return []
+    return sorted(((entry.name, problem(entry)) for entry in root.iterdir()
+                   if entry.is_dir() and not entry.name.startswith('.') and not content_root(entry)),
+                  key=lambda item: (item[0].casefold(), item[0]))
 
 
 def selected(root, config):

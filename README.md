@@ -15,9 +15,9 @@ build, and I’m hoping other Mac users can help me improve it over time. The
 app is unofficial and is not affiliated with Sony, FromSoftware, CodeWeavers,
 or the port’s authors.
 
-## Version 0.1.1
+## Version 0.2.3
 
-This is the first release, not a promise of consistent performance yet. On my
+This is an early community release, not a promise of consistent performance yet. On my
 M1 Pro, gameplay has ranged from around 15 to 30 FPS depending on the area and
 settings. Low frame rates can make the game feel like slow motion, and I’ve
 noticed occasional audio crackling. A full playthrough and 60 FPS at 1080p have
@@ -56,7 +56,7 @@ Apple Silicon graphics path used here.
 
 ## Download and launch
 
-Download **Bloodborne-MacOS-0.1.1.dmg** from the
+Download **Bloodborne-MacOS-0.2.3.dmg** from the
 [GitHub Releases](https://github.com/burhanmoin1/bloodborne-macos/releases)
 page. Open the DMG and drag **Bloodborne MacOS.app** to Applications. Start
 the app, select the folder containing `eboot.bin` under **Game & effects**,
@@ -82,8 +82,19 @@ Control-click the app in Finder, choose **Open**, then confirm once.
 - A complete playthrough and stable 1080p/60 FPS have not been confirmed.
 - Online play, mods, and optional patches come from the Windows port and have
   not been fully checked through CrossOver.
-- The first release supports the pinned Bloodborne PC port v1.6 runtime. The
-  launcher checks its executable hash and stops if it finds an unknown build.
+- This release uses the pinned Bloodborne PC port v1.9 runtime and shadPS4
+  macOS v0.20.0 graphics components. The CrossOver adapter accepts only the
+  verified v1.6 and v1.9 probe executables; unknown builds are rejected.
+- The v1.9 CrossOver patch reserves 4 GiB rather than 8 GiB for the system on
+  integrated GPUs. The launcher leaves `BB_GC_BUDGET_MB` unset so the runtime
+  uses its own texture-cache policy. Setting `BB_GC_BUDGET_MB` applies an
+  explicit cache budget in MiB; larger budgets may increase macOS memory
+  pressure and swap, especially with other memory-heavy apps open.
+- CrossOver reports AVX as unavailable in CPUID on Apple Silicon even though
+  its Rosetta runner executes AVX. The Mac launcher skips that CPU feature gate
+  and enables the port's experimental legacy-instruction translations.
+- Frame generation is not exposed on macOS. The Mac UI keeps to the graphics
+  modes validated for the Apple Silicon CrossOver path.
 
 The app downloads the Windows runtime and graphics components on first use,
 checks their published SHA-256 values, and extracts the needed files locally.
@@ -119,6 +130,12 @@ brew install mingw-w64
 ```
 
 The app is built at `dist/Bloodborne MacOS.app`; the DMG is
-`dist/Bloodborne-MacOS-0.1.1.dmg`. `BB_APP_VERSION` can be set when building a
+`dist/Bloodborne-MacOS-0.2.3.dmg`. `BB_APP_VERSION` can be set when building a
 different version. For source development, double-click
 `Launch Bloodborne.command` to open the same launcher.
+
+For a direct CrossOver launch from a terminal, run `bash ./run-crossover.sh`.
+It reads the game, CrossOver runner, and save folder from the launcher settings,
+so it uses the same saves as the app. Each run is logged under `./logs/` in the
+current working directory; the `latest` link points to the newest run. Set
+`BB_RUN_LOGS_DIR` to choose another log directory.

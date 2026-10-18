@@ -8,9 +8,9 @@ upstream GPL-2.0 license in `LICENSE`.
 The macOS app icon in `app/resources/bloodborne.ico` is the launcher icon from
 the same upstream project; the build converts it to an `.icns` file.
 
-On first launch, Bloodborne MacOS can download the Windows port v1.6 release
+On first launch, Bloodborne MacOS can download the Windows port v1.9 release
 from the upstream project and the Vulkan loader/KosmicKrisp files from the
-official shadPS4 macOS v0.19.0 release. It verifies the published archive
+official shadPS4 macOS v0.20.0 release. It verifies the published archive
 SHA-256 values and extracts only the files it needs into the user's macOS
 Application Support folder. These runtime binaries are not checked into this
 repository.

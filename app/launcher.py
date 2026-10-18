@@ -33,7 +33,8 @@ import zipfile
 FROZEN = getattr(sys, 'frozen', False)
 IS_MACOS = sys.platform == 'darwin'
 APP_NAME = 'Bloodborne MacOS' if IS_MACOS else 'Bloodborne'
-APP_VERSION = '0.1.1'
+APP_VERSION = '0.2.3'
+PORT_RUNTIME_VERSION = '1.9'
 PACKAGE_DIR = Path(__file__).resolve().parent
 if FROZEN:
     APP_DIR = Path(getattr(sys, '_MEIPASS', PACKAGE_DIR)) / 'app'
@@ -54,7 +55,7 @@ if os.environ.get('BB_PORT_DIR'):
 elif (WORKSPACE / 'bbport-windows' / 'Bloodborne.exe').is_file():
     PORT_DIR = WORKSPACE / 'bbport-windows'
 else:
-    PORT_DIR = DATA_DIR / 'port'
+    PORT_DIR = DATA_DIR / f'port-v{PORT_RUNTIME_VERSION}'
 VENDOR_SCRIPTS = APP_DIR / 'vendor_scripts'
 for import_dir in (APP_DIR, VENDOR_SCRIPTS):
     if str(import_dir) not in sys.path:
@@ -247,11 +248,12 @@ APP_DEFAULTS = {'ui_language': '', 'game_dir': default_game_dir(), 'user_dir': '
                 'online_community': COMMUNITY_SERVER}
 
 PORT_RUNTIME_URL = ('https://github.com/Supermedo/bloodborne_pc/releases/download/'
-                    'windows-v1.6/Bloodborne-Windows.zip')
-PORT_RUNTIME_SHA256 = '8410d1ca83c5335c2178c742c8a077b9cb07bf262018537f85fba7ac1808bd7d'
+                    f'windows-v{PORT_RUNTIME_VERSION}/Bloodborne-Windows.zip')
+PORT_RUNTIME_SHA256 = 'd2df6aa37530f0d21f577c5cc05bd3366b1f95e8f402b96cab89bbd8c8a219e5'
+PORT_RUNTIME_PROBE_SHA256 = '0a29810e3622669aafd726eba0ad4e6905a3f2c2beb5d657acfbf9943754acd4'
 VULKAN_RUNTIME_URL = ('https://github.com/shadps4-emu/shadPS4/releases/download/'
-                      'v.0.19.0/shadps4-macos-sdl-0.19.0.zip')
-VULKAN_RUNTIME_SHA256 = '47676b4875343b69f49689c7668d71de79ecaaa17ffeab3415d4137800b7ee02'
+                      'v.0.20.0/shadps4-macos-sdl-2026-0.20.0.zip')
+VULKAN_RUNTIME_SHA256 = '50ac3b18f2ad0b52dda4eae9b2f6c54a4c26c0425c00c053073fff4da74d7c60'
 MACOS_RELEASES_PAGE = 'https://github.com/burhanmoin1/bloodborne-macos/releases/latest'
 
 
@@ -609,38 +611,38 @@ def install_translation_runtime():
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True, exist_ok=True)
 
-    if not (PORT_DIR / 'Bloodborne.exe').is_file():
+    probe = PORT_DIR / 'bin' / 'bb-probe.exe'
+    current_runtime = False
+    if (PORT_DIR / 'Bloodborne.exe').is_file() and probe.is_file():
+        current_runtime = hashlib.sha256(probe.read_bytes()).hexdigest() == PORT_RUNTIME_PROBE_SHA256
+    if not current_runtime:
         archive = download_verified(PORT_RUNTIME_URL, PORT_RUNTIME_SHA256,
-                                    downloads / 'Bloodborne-Windows-v1.6.zip')
+                                    downloads / f'Bloodborne-Windows-v{PORT_RUNTIME_VERSION}.zip')
         unpacked = staging / 'port'
         extract_zip_safely(archive, unpacked)
         runtime_root = next((item.parent for item in unpacked.rglob('Bloodborne.exe')), None)
         if not runtime_root:
             raise OSError('The downloaded port archive did not contain Bloodborne.exe.')
-        target = PORT_DIR
+        target = DATA_DIR / f'port-v{PORT_RUNTIME_VERSION}'
         if target.exists():
-            if (target / 'Bloodborne.exe').is_file():
+            target_probe = target / 'bin' / 'bb-probe.exe'
+            if (target / 'Bloodborne.exe').is_file() and target_probe.is_file() and \
+                    hashlib.sha256(target_probe.read_bytes()).hexdigest() == PORT_RUNTIME_PROBE_SHA256:
                 PORT_DIR = target
-            elif any(target.iterdir()):
-                # Preserve existing user data if an earlier setup left files here.
-                target = DATA_DIR / 'port-v1.6'
-            else:
-                # Moving the extracted directory into an existing empty directory
-                # would create an unwanted nested port/port folder.
+                current_runtime = True
+            elif not any(target.iterdir()):
                 target.rmdir()
+            elif any(target.iterdir()):
+                raise OSError(f'Runtime destination already exists and is not the verified v{PORT_RUNTIME_VERSION} build: {target}')
         target.parent.mkdir(parents=True, exist_ok=True)
-        if (target / 'Bloodborne.exe').is_file():
-            PORT_DIR = target
-        elif target.exists():
-            raise OSError(f'Runtime destination already exists and is incomplete: {target}')
-        else:
+        if not current_runtime:
             shutil.move(str(runtime_root), str(target))
             PORT_DIR = target
 
     required = ('libMoltenVK.dylib', 'libvulkan_kosmickrisp.dylib', 'kosmickrisp_mesa_icd.json')
     if not all((GRAPHICS_DIR / item).is_file() for item in required):
         archive = download_verified(VULKAN_RUNTIME_URL, VULKAN_RUNTIME_SHA256,
-                                    downloads / 'shadps4-macos-v0.19.0.zip')
+                                    downloads / 'shadps4-macos-v0.20.0.zip')
         unpacked = staging / 'vulkan'
         extract_zip_safely(archive, unpacked)
         loader = next(unpacked.rglob('libvulkan.dylib'), None)
@@ -653,7 +655,7 @@ def install_translation_runtime():
         shutil.copy2(driver, GRAPHICS_DIR / 'libvulkan_kosmickrisp.dylib')
         shutil.copy2(manifest, GRAPHICS_DIR / 'kosmickrisp_mesa_icd.json')
         (GRAPHICS_DIR / 'THIRD_PARTY_NOTICES.txt').write_text(
-            'Vulkan loader and Mesa KosmicKrisp driver extracted from the official shadPS4 macOS release v0.19.0.\n'
+            'Vulkan loader and Mesa KosmicKrisp driver extracted from the official shadPS4 macOS release v0.20.0.\n'
             'Sources: https://github.com/shadps4-emu/shadPS4 and '
             'https://github.com/shadexternals/mesa-kosmickrisp\n', encoding='utf-8')
     shutil.rmtree(staging, ignore_errors=True)
@@ -1024,7 +1026,18 @@ class Launcher:
             row=self.next_row(quick), column=1, sticky='w', pady=(4, 0))
         ttk.Button(quick, text=_('Add to Steam'), command=self.add_to_steam).grid(
             row=self.next_row(quick), column=1, sticky='w', pady=(10, 0))
-        for key in ('fps_mode', 'upscaler', 'output_res'):
+        previous_upscaler = self.vars['upscaler'].get()
+
+        def select_quality_for_fsr(*_args):
+            nonlocal previous_upscaler
+            current_upscaler = self.vars['upscaler'].get()
+            if (current_upscaler == 'fsr3' and previous_upscaler != 'fsr3' and
+                    self.vars['preset'].get() == '0'):
+                self.vars['preset'].set('1')
+            previous_upscaler = current_upscaler
+
+        self.vars['upscaler'].trace_add('write', select_quality_for_fsr)
+        for key in ('fps_mode', 'upscaler', 'preset', 'output_res'):
             self.vars[key].trace_add('write', lambda *_a: self.refresh_status())
 
     def refresh_crossover_detection(self):
@@ -1111,8 +1124,8 @@ class Launcher:
                                  'Хранится в bbport.ini; в игре меняется через меню (Insert или L3+R3).'))
         self.section(f, _('Upscaling', 'Апскейлинг'), top=4)
         upscaler_hint = (_('FSR 3.1 is the supported temporal upscaler on this Apple Silicon CrossOver path. '
-                           'DLSS and FSR 4 are hidden because their required NVIDIA or Vulkan GPU features '
-                           'are unavailable here.') if IS_MACOS else
+                   'Choose it before Play; changing it in-game can fail to create the FSR context. '
+                   'Restart the game after changing it.') if IS_MACOS else
                          _("Temporal upscaling with the game's own motion vectors. FSR 4 needs its assets (below) and "
                            'a GPU with INT8 dot products; otherwise the game falls back to FSR 3.1 by itself.',
                            'Временной апскейлинг с векторами движения игры. FSR 4 нужны ассеты (ниже) и GPU с INT8; '
@@ -1424,9 +1437,10 @@ class Launcher:
         if info and info[1] != PATCH_VERSION:
             fps = ('30 FPS',)
         upscaler = dict(UPSCALERS).get(self.var('upscaler', 'ini').get(), ('?',))[0].split(' (')[0]
+        preset = dict(PRESETS).get(self.var('preset', 'ini').get(), ('?',))[0]
         output = self.var('output_res', 'ini').get().replace('x', ' × ')
         online = _('Online') if self.var('online', 'app').get() else _('Offline')
-        return f'{_(*fps)}   ·   {upscaler}   ·   {output}   ·   {online}'
+        return f'{_(*fps)}   ·   {upscaler} · {preset}   ·   {output}   ·   {online}'
 
     def detect_gpu(self):
         if IS_MACOS:
@@ -1501,7 +1515,7 @@ class Launcher:
         if not hasattr(self, 'patches_frame'):
             return
         tk, ttk = self.tk, self.ttk
-        from mods import discover
+        from mods import discover, unrecognized
         from patches import external_patches
         for holder in (self.mods_frame, self.patches_frame):
             for widget in holder.winfo_children():
@@ -1525,6 +1539,9 @@ class Launcher:
             ttk.Button(line, text='▲', width=3, command=lambda i=index: self.move_mod(i, -1)).pack(side='left')
             ttk.Button(line, text='▼', width=3, command=lambda i=index: self.move_mod(i, 1)).pack(side='left', padx=(2, 10))
             ttk.Checkbutton(line, text=f'{index + 1}.  {name}', variable=var).pack(side='left')
+        for name, reason in unrecognized(root):
+            ttk.Label(self.mods_frame, text=_('Not loaded: {}: {}').format(name, reason),
+                      style='Muted.TLabel', wraplength=self.px(620), justify='left').pack(anchor='w', pady=(4, 0))
         if len(self.mod_order) > 1:
             ttk.Label(self.mods_frame, text=_('Lower in the list loads later and wins conflicts.',
                                               'Ниже в списке — загружается позже и перекрывает.'),

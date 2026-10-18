@@ -27,6 +27,64 @@ def windows_path(path: Path) -> str:
     return "Z:" + str(path.resolve()).replace("/", "\\")
 
 
+def process_tree_usage(root_pid: int, target_process: str | None = None):
+    try:
+        result = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,time=,rss=,args="],
+                                capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+    processes = {}
+    for line in result.stdout.splitlines():
+        fields = line.split(maxsplit=4)
+        if len(fields) < 4:
+            continue
+        try:
+            pid, parent = int(fields[0]), int(fields[1])
+            day_text, separator, clock = fields[2].partition("-")
+            day_seconds = int(day_text) * 86400 if separator else 0
+            time_value = clock if separator else day_text
+            time_parts = [float(part) for part in time_value.split(":")]
+            if len(time_parts) == 3:
+                cpu_seconds = day_seconds + time_parts[0] * 3600 + time_parts[1] * 60 + time_parts[2]
+            elif len(time_parts) == 2:
+                cpu_seconds = day_seconds + time_parts[0] * 60 + time_parts[1]
+            else:
+                cpu_seconds = time_parts[0]
+            command = fields[4] if len(fields) == 5 else ""
+            processes[pid] = (parent, cpu_seconds, int(fields[3]), command)
+        except ValueError:
+            continue
+
+    roots = ({pid for pid, process in processes.items() if target_process in process[3]}
+             if target_process else set())
+    if not roots:
+        if root_pid not in processes:
+            return None
+        roots = {root_pid}
+    tree = set(roots)
+    while True:
+        children = {pid for pid, (parent, _cpu, _rss, _command) in processes.items()
+                    if parent in tree}
+        if children <= tree:
+            break
+        tree.update(children)
+    return (sum(processes[pid][1] for pid in tree),
+            sum(processes[pid][2] for pid in tree), len(tree))
+
+
+def system_memory_free_percent():
+    try:
+        result = subprocess.run(["/usr/bin/memory_pressure", "-Q"],
+                                capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("System-wide memory free percentage:"):
+            return line.rsplit(" ", 1)[-1].removesuffix("%")
+    return None
+
+
 def runner_root(override: Path | None) -> Path:
     candidates = [override] if override else [
         Path("/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"),
@@ -100,6 +158,9 @@ def launch(args) -> int:
         "PATH": f"{root}/bin:" + environment.get("PATH", "/usr/bin:/bin"),
         "BB_PROBE": windows_path(patched),
         "BB_MACOS_CROSSOVER": "1",
+        # CrossOver reports VirtualApple without AVX in CPUID, although the
+        # Rosetta runner executes AVX (verified by a CrossOver smoke test).
+        "BB_SKIP_CPU_CHECK": "1",
         # Wine's macOS backend loads libMoltenVK by name. Here that name routes
         # to the Vulkan loader, which selects KosmicKrisp through its ICD file.
         "DYLD_LIBRARY_PATH": str(graphics) + (":" + environment["DYLD_LIBRARY_PATH"]
@@ -169,8 +230,11 @@ def launch(args) -> int:
             command = [str(loader), str(port / "Bloodborne.exe"), "--run", *extra]
     log_path = compat / "launch.log"
     print(f"CrossOver runner: {root}", flush=True)
+    if environment.get("BB_GC_BUDGET_MB"):
+        print(f"Texture-cache budget override: {environment['BB_GC_BUDGET_MB']} MiB", flush=True)
     print(f"Launch log: {log_path}", flush=True)
     with log_path.open("w", encoding="utf-8", errors="replace") as log:
+        log_lock = threading.Lock()
         stop_requested = threading.Event()
 
         def request_stop(_signum, _frame):
@@ -204,7 +268,16 @@ def launch(args) -> int:
                         pass
                     process.wait()
 
+        def write_log(line):
+            with log_lock:
+                log.write(line)
+                log.flush()
+                sys.stdout.write(line)
+                sys.stdout.flush()
+
         relay = None
+        usage_stop = threading.Event()
+        usage_thread = None
         try:
             if stop_requested.is_set():
                 return 143
@@ -213,11 +286,39 @@ def launch(args) -> int:
 
             def relay_output():
                 for raw in iter(process.stdout.readline, b""):
-                    line = raw.decode("utf-8", errors="replace")
-                    log.write(line)
-                    log.flush()
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
+                    write_log(raw.decode("utf-8", errors="replace"))
+
+            def sample_usage():
+                target_process = Path(patched).name
+                previous = process_tree_usage(process.pid, target_process)
+                previous_at = time.monotonic()
+                while not usage_stop.wait(1):
+                    current = process_tree_usage(process.pid, target_process)
+                    current_at = time.monotonic()
+                    if current is None:
+                        continue
+                    elapsed = current_at - previous_at
+                    if previous is None:
+                        cpu_percent = 0.0
+                    else:
+                        cpu_percent = max(0.0, current[0] - previous[0]) * 100 / elapsed
+                    free_percent = system_memory_free_percent()
+                    memory = (f"system memory free {free_percent}%" if free_percent is not None
+                              else "system memory free unavailable")
+                    line = (f"Performance ({elapsed:.1f}s): CPU {cpu_percent:.1f}% "
+                            f"({cpu_percent / 100:.2f} cores), RSS {current[1] / 1024:.0f} MiB "
+                            f"(process-tree sum), processes {current[2]}, {memory}\n")
+                    write_log(line)
+                    previous, previous_at = current, current_at
+
+            frame_stats = "on" if environment.get("BB_FRAME_STATS") == "1" else "off"
+            gpu_profile = "on" if environment.get("BB_GPU_PROFILE") == "1" else "off"
+            write_log(f"Performance telemetry: frame statistics {frame_stats}, "
+                      f"GPU pass profiling {gpu_profile}; host CPU/RSS/memory pressure sampled every second.\n")
+            write_log("GPU utilization, draw-call counts, and per-asset shader/texture load events "
+                      "are not exposed by the bundled runtime.\n")
+            usage_thread = threading.Thread(target=sample_usage, daemon=True)
+            usage_thread.start()
 
             relay = threading.Thread(target=relay_output, daemon=True)
             relay.start()
@@ -237,6 +338,9 @@ def launch(args) -> int:
                 except subprocess.TimeoutExpired:
                     continue
         finally:
+            usage_stop.set()
+            if usage_thread:
+                usage_thread.join(timeout=6)
             signal.signal(signal.SIGTERM, old_term)
             signal.signal(signal.SIGINT, old_int)
         if relay:
