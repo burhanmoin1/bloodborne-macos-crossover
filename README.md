@@ -41,11 +41,13 @@ Vulkan loader + Mesa KosmicKrisp
 Apple Metal on Apple Silicon
 ```
 
-FSR upscaling is not working on the Apple Silicon CrossOver path. The launcher
-replaces the Upscaler control with an **FSR** resolution field: enter a render
-size as `WIDTHxHEIGHT` (for example, 1280x740), then set **Output resolution**
-to your display size (for example, 1920x1080). This provides manual resolution
-scaling in place of FSR. NVIDIA DLSS and FSR 4 are not shown on macOS.
+FSR 3.1 is selectable on the Apple Silicon CrossOver path. The included runtime
+source now contains a Vulkan memory-selection fix for Apple unified memory; a
+standalone context probe succeeds on an M1 Pro with KosmicKrisp. The Windows
+runtime still needs to be rebuilt from this source before a release can include
+the fix. Select **FSR 3.1** and a quality preset in the launcher; leave **Manual
+render resolution** blank to use the preset. NVIDIA DLSS and FSR 4 are not shown
+on macOS.
 
 ## Requirements
 
@@ -93,8 +95,9 @@ Control-click the app in Finder, choose **Open**, then confirm once.
 - CrossOver reports AVX as unavailable in CPUID on Apple Silicon even though
   its Rosetta runner executes AVX. The Mac launcher skips that CPU feature gate
   and enables the port's experimental legacy-instruction translations.
-- FSR is not working on this macOS CrossOver path. Use the manual render and
-  output resolution controls instead; frame generation is not exposed.
+- The FSR source patch falls back to host-visible device-local memory when the
+  Vulkan device exposes unified memory only. The released runtime must be
+  rebuilt to include it; frame generation is not exposed on this path.
 
 The app downloads the Windows runtime and graphics components on first use,
 checks their published SHA-256 values, and extracts the needed files locally.
@@ -139,3 +142,31 @@ It reads the game, CrossOver runner, and save folder from the launcher settings,
 so it uses the same saves as the app. Each run is logged under `./logs/` in the
 current working directory; the `latest` link points to the newest run. Set
 `BB_RUN_LOGS_DIR` to choose another log directory.
+
+For performance comparisons, the launcher's **Extra variables** field accepts
+runtime overrides. `BB_COPY_THREADS=N` changes the guest-memory copy worker
+count; the runtime chooses its own count when unset. `BB_STAGING_KEEP_MB=N`
+changes how much staging memory the runtime retains (the launcher default is
+768 MiB, up from the runtime's 512 MiB default). This is a staging upload
+buffer pool, separate from the texture cache.
+Change one value at a time and compare the same scene using frame statistics.
+Avoid raising `BB_GC_BUDGET_MB` without checking memory pressure: it changes
+texture eviction thresholds, not the staging-copy path.
+
+## Included runtime source
+
+The Supermedo Bloodborne runtime source is included under [`upstream/`](upstream/)
+so the CrossOver app and the source it packages live in this repository. The
+upstream Windows branch is tracked as a Git subtree; its upstream README and
+license are preserved in that directory. To bring in a new upstream source
+release, add the upstream remote once, then fetch and review its current Windows
+branch before pulling it:
+
+```sh
+git remote add supermedo https://github.com/Supermedo/bloodborne_pc.git
+git fetch supermedo windows
+git subtree pull --prefix=upstream supermedo windows --squash
+```
+
+Review upstream runtime changes separately from the CrossOver launcher and
+update the launcher’s pinned runtime only after the matching build is ready.

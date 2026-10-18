@@ -34,7 +34,7 @@ FROZEN = getattr(sys, 'frozen', False)
 IS_MACOS = sys.platform == 'darwin'
 APP_NAME = 'Bloodborne MacOS' if IS_MACOS else 'Bloodborne'
 APP_VERSION = '1.0'
-PORT_RUNTIME_VERSION = '1.9'
+PORT_RUNTIME_VERSION = '1.9.2'
 PACKAGE_DIR = Path(__file__).resolve().parent
 if FROZEN:
     APP_DIR = Path(getattr(sys, '_MEIPASS', PACKAGE_DIR)) / 'app'
@@ -249,8 +249,8 @@ APP_DEFAULTS = {'ui_language': '', 'game_dir': default_game_dir(), 'user_dir': '
 
 PORT_RUNTIME_URL = ('https://github.com/Supermedo/bloodborne_pc/releases/download/'
                     f'windows-v{PORT_RUNTIME_VERSION}/Bloodborne-Windows.zip')
-PORT_RUNTIME_SHA256 = 'd2df6aa37530f0d21f577c5cc05bd3366b1f95e8f402b96cab89bbd8c8a219e5'
-PORT_RUNTIME_PROBE_SHA256 = '0a29810e3622669aafd726eba0ad4e6905a3f2c2beb5d657acfbf9943754acd4'
+PORT_RUNTIME_SHA256 = '10c20ec0160a3349178a8ad314fc03ec8e53b24cce37d51b7636ab3916208050'
+PORT_RUNTIME_PROBE_SHA256 = '05729a9989b78d409409390aa6564ea7038f570fde986a800c6366c29d48105b'
 VULKAN_RUNTIME_URL = ('https://github.com/shadps4-emu/shadPS4/releases/download/'
                       'v.0.20.0/shadps4-macos-sdl-2026-0.20.0.zip')
 VULKAN_RUNTIME_SHA256 = '50ac3b18f2ad0b52dda4eae9b2f6c54a4c26c0425c00c053073fff4da74d7c60'
@@ -412,8 +412,6 @@ def load_ini():
         if '=' in line and not line.lstrip().startswith('#'):
             key, value = line.split('=', 1)
             values[key.strip()] = value.strip()
-    if IS_MACOS:
-        values['upscaler'] = 'off'
     return values, lines
 
 
@@ -1017,12 +1015,8 @@ class Launcher:
         ttk.Label(quick, text=_('Quick settings', 'Основное'), style='Section.TLabel').grid(
             row=self.next_row(quick), column=0, columnspan=2, sticky='w', pady=(0, 2))
         self.row(quick, _('Frame rate', 'Частота кадров'), self.choice(quick, 'fps_mode', 'app', FPS_MODES, 26))
-        if IS_MACOS:
-            self.row(quick, _('FSR', 'FSR'),
-                     self.ttk.Entry(quick, textvariable=self.var('render_res', 'ini'), width=20))
-        else:
-            self.row(quick, _('Upscaler', 'Апскейлер'), self.choice(quick, 'upscaler', 'ini', UPSCALERS, 26))
-            self.row(quick, _('Preset', 'Пресет'), self.choice(quick, 'preset', 'ini', PRESETS, 26))
+        self.row(quick, _('Upscaler', 'Апскейлер'), self.choice(quick, 'upscaler', 'ini', UPSCALERS, 26))
+        self.row(quick, _('Preset', 'Пресет'), self.choice(quick, 'preset', 'ini', PRESETS, 26))
         self.row(quick, _('Output', 'Разрешение'), self.choice(quick, 'output_res', 'ini', OUTPUTS, 26))
         ttk.Checkbutton(quick, text=_('Fullscreen', 'Полный экран'), variable=self.var('fullscreen', 'app')).grid(
             row=self.next_row(quick), column=1, sticky='w', pady=(8, 0))
@@ -1042,8 +1036,7 @@ class Launcher:
                 previous_upscaler = current_upscaler
 
             self.vars['upscaler'].trace_add('write', select_quality_for_fsr)
-        status_keys = ('fps_mode', 'render_res', 'output_res') if IS_MACOS else \
-            ('fps_mode', 'upscaler', 'preset', 'output_res')
+        status_keys = ('fps_mode', 'upscaler', 'preset', 'render_res', 'output_res')
         for key in status_keys:
             self.vars[key].trace_add('write', lambda *_a: self.refresh_status())
 
@@ -1131,9 +1124,16 @@ class Launcher:
                                  'Хранится в bbport.ini; в игре меняется через меню (Insert или L3+R3).'))
         self.section(f, _('FSR', 'FSR') if IS_MACOS else _('Upscaling', 'Апскейлинг'), top=4)
         if IS_MACOS:
-            self.row(f, _('FSR', 'FSR'), ttk.Entry(f, textvariable=self.var('render_res', 'ini'), width=24),
-                                         _('Manual resolution as WIDTHxHEIGHT; FSR upscaling is unavailable on this path.',
-                                             'Ручное разрешение WIDTHxHEIGHT; апскейлинг FSR здесь недоступен.'))
+            upscaler_hint = _('FSR 3.1 is experimental through CrossOver: it initialized in some runs and failed in others. Check the run log for “Upscaler: FSR 3.1”.',
+                              'FSR 3.1 экспериментален в CrossOver: в одних запусках он работал, в других возникала ошибка. Проверьте журнал запуска на строку «Upscaler: FSR 3.1».')
+            self.row(f, _('Upscaler', 'Апскейлер'), self.choice(f, 'upscaler', 'ini', UPSCALERS), upscaler_hint)
+            self.row(f, _('Quality preset', 'Пресет'), self.choice(f, 'preset', 'ini', PRESETS),
+                     _('Render scale per axis; Performance renders at half the output width and height.',
+                       'Масштаб рендера по каждой оси; Performance использует половину ширины и высоты вывода.'))
+            self.row(f, _('Manual render resolution', 'Ручное разрешение рендера'),
+                     ttk.Entry(f, textvariable=self.var('render_res', 'ini'), width=24),
+                     _('Optional WIDTHxHEIGHT override, for example 1280x720. Leave blank to use the preset.',
+                       'Необязательное WIDTHxHEIGHT, например 1280x720. Пустое поле использует пресет.'))
         else:
                         upscaler_hint = _("Temporal upscaling with motion vectors. FSR 4 needs assets and GPU INT8 support; otherwise the game falls back to FSR 3.1.",
                                                             'Временной апскейлинг с векторами движения. FSR 4 требует ассеты и INT8; иначе игра переключится на FSR 3.1.')

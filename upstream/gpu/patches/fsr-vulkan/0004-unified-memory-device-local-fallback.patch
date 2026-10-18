@@ -1,0 +1,19 @@
+diff --git a/upstream/ffx-1.1.4/sdk/src/backends/vk/ffx_vk.cpp b/upstream/ffx-1.1.4/sdk/src/backends/vk/ffx_vk.cpp
+index b2439b6..967e3e7 100644
+--- a/upstream/ffx-1.1.4/sdk/src/backends/vk/ffx_vk.cpp
++++ b/upstream/ffx-1.1.4/sdk/src/backends/vk/ffx_vk.cpp
+@@ -427,0 +428 @@ uint32_t findMemoryTypeIndex(
++    uint32_t unifiedMemoryCandidate = UINT32_MAX;
+@@ -442,2 +443,5 @@ uint32_t findMemoryTypeIndex(
+-            // if just device-local memory is requested, make sure this is the invisible heap to prevent over-subscribing the local heap
+-            if (requestedProperties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT && (memoryProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
++            // Prefer a device-local heap that is not host-visible on discrete GPUs,
++            // but keep a unified-memory candidate for Apple GPUs where all device
++            // local memory is also host-visible.
++            if (requestedProperties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT && (memoryProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
++                unifiedMemoryCandidate = i;
+@@ -444,0 +449 @@ uint32_t findMemoryTypeIndex(
++            }
+@@ -455 +460 @@ uint32_t findMemoryTypeIndex(
+-    return bestCandidate;
++    return bestCandidate != UINT32_MAX ? bestCandidate : unifiedMemoryCandidate;

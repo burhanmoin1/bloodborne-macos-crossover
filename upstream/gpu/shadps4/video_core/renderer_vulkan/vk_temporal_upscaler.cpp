@@ -52,6 +52,28 @@ FfxVkPortableImage Describe(vk::Image image, vk::Format format, u32 width, u32 h
     return out;
 }
 
+const char* FsrPortableResultName(FfxVkPortableResult result) {
+    switch (result) {
+    case FFX_VK_PORTABLE_OK:
+        return "ok";
+    case FFX_VK_PORTABLE_ERROR_INVALID_POINTER:
+        return "invalid pointer";
+    case FFX_VK_PORTABLE_ERROR_INVALID_STRUCT_SIZE:
+        return "invalid struct size";
+    case FFX_VK_PORTABLE_ERROR_VULKAN:
+        return "Vulkan error";
+    case FFX_VK_PORTABLE_ERROR_INVALID_ARGUMENT:
+        return "invalid argument";
+    case FFX_VK_PORTABLE_ERROR_OUT_OF_MEMORY:
+        return "out of memory";
+    case FFX_VK_PORTABLE_ERROR_UNSUPPORTED:
+        return "unsupported device or feature";
+    case FFX_VK_PORTABLE_ERROR_BACKEND:
+        return "FidelityFX backend error";
+    }
+    return "unknown result";
+}
+
 /// bbport: BB_DUMP_TRIGGER=<file> BB_DUMP_DIR=<dir> (default out/dump): creating the file dumps
 /// the upscaler's images of the next BB_DUMP_FRAMES (8) frames as raw files
 /// <dir>/fNNN_<name>_<w>x<h>_<format>.raw, for checking temporal stability offline.
@@ -437,9 +459,29 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
             PrintIssues("create info", issues);
             return false;
         }
-        if (ffxVkPortableUpscaleContextCreate(&device_info, &create_info, &context) !=
-            FFX_VK_PORTABLE_OK) {
-            std::printf("Upscaler: FSR 3 context creation failed\n");
+        const FfxVkPortableResult create_result =
+            ffxVkPortableUpscaleContextCreate(&device_info, &create_info, &context);
+        if (create_result != FFX_VK_PORTABLE_OK) {
+            std::printf("Upscaler: FSR 3 context creation failed: %s (%d)\n",
+                        FsrPortableResultName(create_result), static_cast<int>(create_result));
+            FfxVkPortableDeviceCapabilities capabilities{};
+            capabilities.structSize = sizeof(capabilities);
+            const FfxVkPortableResult query_result =
+                ffxVkPortableQueryDeviceCapabilities(instance.GetPhysicalDevice(), &capabilities);
+            if (query_result == FFX_VK_PORTABLE_OK) {
+                std::printf("Upscaler: FSR 3 device support: compute=%u, subgroup_ops=%u, "
+                            "storage_formats=%u, write_without_format_enabled=%u, "
+                            "prerequisites=%u, device=%04x:%04x, Vulkan=%u.%u\n",
+                            capabilities.hasComputeQueue, capabilities.subgroupOperations,
+                            capabilities.requiredFsr3StorageFormats,
+                            device_info.shaderStorageImageWriteWithoutFormatEnabled,
+                            capabilities.fsr3ComputePrerequisites, capabilities.vendorId,
+                            capabilities.deviceId, VK_API_VERSION_MAJOR(capabilities.apiVersion),
+                            VK_API_VERSION_MINOR(capabilities.apiVersion));
+            } else {
+                std::printf("Upscaler: FSR 3 device support query failed: %s (%d)\n",
+                            FsrPortableResultName(query_result), static_cast<int>(query_result));
+            }
             context = nullptr;
             return false;
         }

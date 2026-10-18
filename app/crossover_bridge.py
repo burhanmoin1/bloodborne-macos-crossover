@@ -250,6 +250,10 @@ def launch(args) -> int:
             if value and not (len(value) >= 2 and value[1] == ":"):
                 environment[key] = windows_path(Path(value).expanduser())
         environment.setdefault("BB_GAME_DIR", windows_path(game))
+        # Retain a larger staging-buffer pool to reduce repeated allocation
+        # and upload churn during traversal. Keep this independent from the
+        # texture-cache budget, which has separate memory-pressure costs.
+        environment.setdefault("BB_STAGING_KEEP_MB", "768")
         environment["BB_CONFIG"] = windows_path(config)
         environment["BB_GPU_USER_DIR"] = (gpu_user if len(gpu_user) >= 2 and gpu_user[1] == ":"
                                             else windows_path(Path(gpu_user).expanduser()))
@@ -265,6 +269,12 @@ def launch(args) -> int:
     print(f"CrossOver runner: {root}", flush=True)
     if environment.get("BB_GC_BUDGET_MB"):
         print(f"Texture-cache budget override: {environment['BB_GC_BUDGET_MB']} MiB", flush=True)
+    tuning = [f"{name}={environment[name]}" for name in ("BB_COPY_THREADS",)
+              if environment.get(name)]
+    if tuning:
+        print(f"Runtime tuning overrides: {', '.join(tuning)}", flush=True)
+    if environment.get("BB_STAGING_KEEP_MB"):
+        print(f"Staging buffer cache retained: {environment['BB_STAGING_KEEP_MB']} MiB", flush=True)
     print(f"Launch log: {log_path}", flush=True)
     with log_path.open("w", encoding="utf-8", errors="replace") as log:
         log_lock = threading.Lock()
