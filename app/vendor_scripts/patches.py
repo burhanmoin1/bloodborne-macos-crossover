@@ -317,8 +317,8 @@ def main():
     segments=eboot_segments((a.out/'eboot.elf').read_bytes())
     writes=compile_patches(a.xml,names,a.app_version,segments)
     size=render_size(settings,a.render_res) if a.render_res or settings.get('render_res') else None
-    # The UI uses the selected output size; its 1920x1080 coordinate space is scaled by the port.
-    ui=output_size(settings)
+    # Manual render sizing also changes the game window, so keep its UI viewport in that space.
+    ui=size if a.render_res or settings.get('render_res') else output_size(settings)
     if size:
         writes+=resolution_writes(a.xml,size,a.app_version,segments,ui)
         if size[0]*size[1]>OUTPUT_SIZE[0]*OUTPUT_SIZE[1]:
