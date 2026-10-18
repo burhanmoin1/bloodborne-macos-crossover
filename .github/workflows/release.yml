@@ -1,0 +1,162 @@
+name: Build v1.0 release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build (use v1.0 for the first unified release)
+        required: true
+        default: v1.0
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows-runtime:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        id: windows_python
+        with:
+          python-version: '3.13'
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            git patch
+            mingw-w64-clang-x86_64-toolchain
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-pkgconf
+            mingw-w64-clang-x86_64-python
+            mingw-w64-clang-x86_64-vulkan-headers
+            mingw-w64-clang-x86_64-vulkan-loader
+            mingw-w64-clang-x86_64-vulkan-memory-allocator
+            mingw-w64-clang-x86_64-glslang
+            mingw-w64-clang-x86_64-sdl3
+            mingw-w64-clang-x86_64-fmt
+            mingw-w64-clang-x86_64-boost
+            mingw-w64-clang-x86_64-robin-map
+            mingw-w64-clang-x86_64-xxhash
+            mingw-w64-clang-x86_64-ffmpeg
+            mingw-w64-clang-x86_64-zydis
+            mingw-w64-clang-x86_64-spirv-tools
+            mingw-w64-clang-x86_64-spirv-headers
+            mingw-w64-clang-x86_64-spirv-cross
+            mingw-w64-clang-x86_64-protobuf
+            mingw-w64-clang-x86_64-openssl
+            mingw-w64-clang-x86_64-zlib
+            mingw-w64-clang-x86_64-miniupnpc
+            mingw-w64-clang-x86_64-nlohmann-json
+      - name: Build patched runtime
+        env:
+          WINDOWS_PYTHON: ${{ steps.windows_python.outputs.python-path }}
+        run: |
+          git config --global core.longpaths true
+          bash upstream/build.sh
+          WINPYTHON="$(cygpath -u "$WINDOWS_PYTHON")" bash upstream/packaging/windows/package.sh
+          mkdir -p release-input
+          cp upstream/dist/bbport-windows.zip release-input/Bloodborne-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-runtime
+          path: release-input/Bloodborne-Windows.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  macos-app:
+    needs: windows-runtime
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-runtime
+          path: release-input
+      - name: Prepare the pinned patched runtime manifest
+        env:
+          GH_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import zipfile
+          from pathlib import Path
+
+          archive = Path('release-input/Bloodborne-Windows.zip')
+          with zipfile.ZipFile(archive) as package:
+              probe = next((name for name in package.namelist()
+                            if name.replace('\\', '/').lower().endswith('/bin/bb-probe.exe')), None)
+              if probe is None:
+                  raise SystemExit('Runtime archive is missing bin/bb-probe.exe')
+              probe_sha = hashlib.sha256(package.read(probe)).hexdigest()
+          runtime_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+          tag = os.environ['RELEASE_TAG']
+          if not tag.startswith('v'):
+              raise SystemExit(f'Expected a v-prefixed release tag, got {tag!r}')
+          repository = os.environ['GH_REPOSITORY']
+          manifest = {
+              'app_version': tag.lstrip('v'),
+              'version': tag.lstrip('v'),
+              'url': f'https://github.com/{repository}/releases/download/{tag}/Bloodborne-Windows.zip',
+              'sha256': runtime_sha,
+              'probe_sha256': probe_sha,
+          }
+          Path('app/resources/runtime-release.json').write_text(
+              json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          Path('release-input/SHA256SUMS.txt').write_text(
+              f'{runtime_sha}  Bloodborne-Windows.zip\n', encoding='utf-8')
+          PY
+      - name: Build and package Apple Silicon app
+        env:
+          APP_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          brew install python@3.13 python-tk@3.13 mingw-w64
+          export BB_PYTHON="$(brew --prefix python@3.13)/bin/python3.13"
+          export BB_APP_VERSION="${APP_RELEASE_TAG#v}"
+          ./build_macos.sh
+          ./package_dmg.sh
+          cp "dist/Bloodborne-MacOS-${BB_APP_VERSION}.dmg" release-input/
+          shasum -a 256 "release-input/Bloodborne-MacOS-${BB_APP_VERSION}.dmg" >> release-input/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-candidate
+          path: release-input/*
+          if-no-files-found: error
+          retention-days: 3
+
+  draft-release:
+    needs: [windows-runtime, macos-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-release-candidate
+          path: release-assets
+      - name: Create draft release for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --repo "$GH_REPOSITORY" \
+            --title "Bloodborne MacOS ${RELEASE_TAG#v}" \
+            --notes-file .github/release-v1.0.md \
+            --draft \
+            --target "$GITHUB_SHA"

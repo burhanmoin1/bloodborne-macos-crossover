@@ -170,3 +170,8 @@ git subtree pull --prefix=upstream supermedo windows --squash
 
 Review upstream runtime changes separately from the CrossOver launcher and
 update the launcher’s pinned runtime only after the matching build is ready.
+
+The `Build v1.0 release candidate` workflow builds the Windows runtime from
+`upstream/`, packages the Apple Silicon app with the generated runtime checksum,
+and opens a **draft** GitHub release for review. Publish that draft only after
+checking both assets and the release notes.

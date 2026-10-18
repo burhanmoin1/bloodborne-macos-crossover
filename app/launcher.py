@@ -33,8 +33,6 @@ import zipfile
 FROZEN = getattr(sys, 'frozen', False)
 IS_MACOS = sys.platform == 'darwin'
 APP_NAME = 'Bloodborne MacOS' if IS_MACOS else 'Bloodborne'
-APP_VERSION = '1.0'
-PORT_RUNTIME_VERSION = '1.9.2'
 PACKAGE_DIR = Path(__file__).resolve().parent
 if FROZEN:
     APP_DIR = Path(getattr(sys, '_MEIPASS', PACKAGE_DIR)) / 'app'
@@ -42,6 +40,19 @@ if FROZEN:
         APP_DIR = PACKAGE_DIR
 else:
     APP_DIR = PACKAGE_DIR
+_runtime_release = {
+    'app_version': '1.0',
+    'version': '1.9.2',
+    'url': 'https://github.com/Supermedo/bloodborne_pc/releases/download/windows-v1.9.2/Bloodborne-Windows.zip',
+    'sha256': '10c20ec0160a3349178a8ad314fc03ec8e53b24cce37d51b7636ab3916208050',
+    'probe_sha256': '05729a9989b78d409409390aa6564ea7038f570fde986a800c6366c29d48105b',
+}
+try:
+    _runtime_release.update(json.loads((APP_DIR / 'resources' / 'runtime-release.json').read_text()))
+except (OSError, ValueError):
+    pass
+APP_VERSION = str(_runtime_release.get('app_version', '1.0'))
+PORT_RUNTIME_VERSION = str(_runtime_release['version'])
 WORKSPACE = Path(os.environ.get('BB_WORKSPACE', APP_DIR.parent)).expanduser().resolve()
 DATA_DIR = Path(os.environ.get(
     'BB_DATA_DIR', Path.home() / 'Library' / 'Application Support' / 'Bloodborne macOS'
@@ -247,14 +258,13 @@ APP_DEFAULTS = {'ui_language': '', 'game_dir': default_game_dir(), 'user_dir': '
                 'online_webapi': '', 'online_npid': '', 'online_password': '', 'online_upnp': True,
                 'online_community': COMMUNITY_SERVER}
 
-PORT_RUNTIME_URL = ('https://github.com/Supermedo/bloodborne_pc/releases/download/'
-                    f'windows-v{PORT_RUNTIME_VERSION}/Bloodborne-Windows.zip')
-PORT_RUNTIME_SHA256 = '10c20ec0160a3349178a8ad314fc03ec8e53b24cce37d51b7636ab3916208050'
-PORT_RUNTIME_PROBE_SHA256 = '05729a9989b78d409409390aa6564ea7038f570fde986a800c6366c29d48105b'
+PORT_RUNTIME_URL = str(_runtime_release['url'])
+PORT_RUNTIME_SHA256 = str(_runtime_release['sha256'])
+PORT_RUNTIME_PROBE_SHA256 = str(_runtime_release['probe_sha256'])
 VULKAN_RUNTIME_URL = ('https://github.com/shadps4-emu/shadPS4/releases/download/'
                       'v.0.20.0/shadps4-macos-sdl-2026-0.20.0.zip')
 VULKAN_RUNTIME_SHA256 = '50ac3b18f2ad0b52dda4eae9b2f6c54a4c26c0425c00c053073fff4da74d7c60'
-MACOS_RELEASES_PAGE = 'https://github.com/burhanmoin1/bloodborne-macos/releases/latest'
+MACOS_RELEASES_PAGE = 'https://github.com/burhanmoin1/bloodborne-macos-crossover/releases/latest'
 
 
 def discover_crossover_runners():

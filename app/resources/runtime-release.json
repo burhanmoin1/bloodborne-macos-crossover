@@ -1,0 +1,7 @@
+{
+  "app_version": "1.0",
+  "version": "1.9.2",
+  "url": "https://github.com/Supermedo/bloodborne_pc/releases/download/windows-v1.9.2/Bloodborne-Windows.zip",
+  "sha256": "10c20ec0160a3349178a8ad314fc03ec8e53b24cce37d51b7636ab3916208050",
+  "probe_sha256": "05729a9989b78d409409390aa6564ea7038f570fde986a800c6366c29d48105b"
+}
